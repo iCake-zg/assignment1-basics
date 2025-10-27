@@ -589,4 +589,73 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
+    # 读数据
+    with open(input_path,"+rb") as f:
+        data = f.read()
+
+
+    '''
+    1. 初始化词汇表
+    '''
+    # 初始化词汇表
+    # 把special_token 加入特殊词汇
+    special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
+
+    # 统计所有字节 建立初始词汇表
+    from collections import Counter
+    byte_count = Counter(data)
+    vocab = {i:bytes(b) for i,b in enumerate(byte_count.keys())}
+
+    # 合并special_token 到词汇表
+    for token in special_tokens_bytes:
+        if token not in vocab.values():
+            vocab[len(vocab)] = token
+
+    '''
+    2. 准备训练数据
+    '''
+    tokens = list(data)
+
+    '''
+    3. 迭代合并过程
+    '''
+    merge = []
+    current_vocab_size = len(vocab)
+
+    while current_vocab_size < vocab_size:
+        # 统计相邻 token 对的 概率
+        from collections import defaultdict
+        pair_counts = defaultdict(int)
+        for i in range(len(tokens)-1):
+            pair_counts[(tokens[i],tokens[i+1])] += 1
+        
+        # 没有更多的合并对了
+        if not pair_counts:
+            break
+        
+        # 找到最频繁的token对
+        most_common_pair = max(pair_counts.items(),key= lambda x:x[1])[0]
+        
+        # 创建新token
+        new_token = bytes(most_common_pair[0]) + bytes(most_common_pair[1])
+
+        # 加新词表
+        vocab[len(vocab)] = new_token
+        current_vocab_size += 1
+
+        # 记录合并
+        merge.append((bytes(most_common_pair[0]),bytes(most_common_pair[1])))
+
+        # 合并token列表里所有的对
+        new_token = []
+        i = 0
+
+    
+            
+
+
+
+
+
+    
     raise NotImplementedError
