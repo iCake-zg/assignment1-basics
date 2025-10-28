@@ -589,73 +589,131 @@ def run_train_bpe(
                 representing that <token1> was merged with <token2>.
                 Merges are ordered by order of creation.
     """
-    # 读数据
+    '''
+    =====1. 验证输入=====
+    '''
+    if not os.path.exists(input_path):
+        raise FileNotFoundError(f"Input file not found: {input_path}")
+    if vocab_size <= len(special_tokens):
+        raise ValueError("vocab_size must be greater than the number of special tokens")
+    
+    '''
+    ======2. 读取输入文件=====
+    '''
     with open(input_path,"+rb") as f:
-        data = f.read()
-
-
-    '''
-    1. 初始化词汇表
-    '''
-    # 初始化词汇表
-    # 把special_token 加入特殊词汇
-    special_tokens_bytes = [token.encode("utf-8") for token in special_tokens]
-
-    # 统计所有字节 建立初始词汇表
-    from collections import Counter
-    byte_count = Counter(data)
-    vocab = {i:bytes(b) for i,b in enumerate(byte_count.keys())}
-
-    # 合并special_token 到词汇表
-    for token in special_tokens_bytes:
-        if token not in vocab.values():
-            vocab[len(vocab)] = token
+        text = f.read()
+    # 简单分词
+    words = text.split()
 
     '''
-    2. 准备训练数据
+    ======3. 初始化词汇表，构建单个字符=====
     '''
-    tokens = list(data)
-
-    '''
-    3. 迭代合并过程
-    '''
-    merge = []
-    current_vocab_size = len(vocab)
-
-    while current_vocab_size < vocab_size:
-        # 统计相邻 token 对的 概率
-        from collections import defaultdict
-        pair_counts = defaultdict(int)
-        for i in range(len(tokens)-1):
-            pair_counts[(tokens[i],tokens[i+1])] += 1
-        
-        # 没有更多的合并对了
-        if not pair_counts:
-            break
-        
-        # 找到最频繁的token对
-        most_common_pair = max(pair_counts.items(),key= lambda x:x[1])[0]
-        
-        # 创建新token
-        new_token = bytes(most_common_pair[0]) + bytes(most_common_pair[1])
-
-        # 加新词表
-        vocab[len(vocab)] = new_token
-        current_vocab_size += 1
-
-        # 记录合并
-        merge.append((bytes(most_common_pair[0]),bytes(most_common_pair[1])))
-
-        # 合并token列表里所有的对
-        new_token = []
-        i = 0
-
+    base_chars = set()
+    for word in words:
+        if isinstance(word,str):
+            base_chars.add(word)
+        # base_chars.update(word)
     
+    '''
+    ======4. 初始化词汇分割，拆为单个字符=====
+    ''' 
+    # word_splits = [[char for char in word] for word in words]
+    word_splits = []
+    for word in words:
+        split = []
+        for char in word:
+            if isinstance(char,str):
+                split.append(char)
+        if split:
+            word_splits.append(split)
+    '''
+    ======5. 初始化词汇表，合并列表=====
+    '''
+    # vocab = {i:char.encode('utf-8') for i,char in enumerate(sorted(base_chars))}
+    vocab = {}
+    for i, char in enumerate(sorted(base_chars)):
+        if isinstance(char, str):
+            vocab[i] = char.encode('utf-8')
+        else:
+            # 如果遇到非字符串类型，尝试转换
+            try:
+                vocab[i] = str(char).encode('utf-8')
+            except Exception as e:
+                raise ValueError(f"无法编码字符: {char}") from e
             
+    from typing import List,Tuple
+    merges:List[Tuple[bytes,bytes]] = []
+    next_id = len(vocab)
 
+    '''
+    ====5.1 计算需要合并的次数====
+    '''
+    max_merges = vocab_size - len(base_chars) - len(special_tokens)
+    if max_merges <= 0:
+        raise ValueError("vocab_size must be greater than the number of base chars plus the number of special tokens")
 
+    '''
+    =====6.BPE 训练循环=====
+    '''
+    for merge_step in range(max_merges):
+        # 统计相邻字符出现的频率
+        from collections import Counter
+        pair_count = Counter()
 
+        for word_split in word_splits:
+            if len(word_split) <= 1:
+                continue
+            for i in range((len(word_split)-1)):
+                pair = (word_split[i],word_split[i+1])
+                pair_count[pair] += 1
+        
+        # 如果没有更多合并的对，就结束
+        if not pair_count:
+            break
 
+        # 找到最频繁的字符对
+        most_frequent_pair = pair_count.most_common(1)[0][0]
 
+        # 添加新的合并token到词汇表
+        new_token = f"{most_frequent_pair[0]}{most_frequent_pair[1]}"
+        vocab[next_id] = new_token.encode('utf-8')
+        merges.append((most_frequent_pair[0].encode('utf-8'),most_frequent_pair[1].encode('utf-8')))
+        next_id += 1
+
+        # 在所有词中更新这个字符对
+        new_word_splits = []
+        for word_split in word_splits:
+            new_split = []
+            i = 0
+            while i < len(word_split):
+                # 找到要合并的对
+                if(i < len(word_split) -1 ) and word_split[i] == most_frequent_pair[0] and word_split[i+1] == most_frequent_pair[1]:
+                    new_split.append(new_token)
+                    i += 2
+                else:
+                    new_split.append(word_split[i])
+                    i += 1
+            new_word_splits.append(new_split)
+        
+        word_splits = new_word_splits
     
+
+    '''
+    ===== 7.添加token到词汇表=====
+    '''
+    for token in special_tokens:
+        vocab[next_id] = token.encode('utf-8')
+        next_id += 1
+
+    '''
+    ===== 8.排序并且返回结果=====
+    '''
+    sorted_vocab = {k:v for k,v in sorted(vocab.items())}
+
+    return sorted_vocab,merges
+
+
+
+
+
     raise NotImplementedError
