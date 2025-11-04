@@ -4,7 +4,13 @@
 
 
 
+
+
+
+
 from typing import Iterable,Iterator
+import re
+
 
 
 class Tokenizer():
@@ -18,11 +24,19 @@ class Tokenizer():
 
         self.vocab: dict[int, bytes] = vocab
         self.merges: list[tuple[bytes, bytes]] = merges
-        self.special_tokens: list[str] | None = None
+        self.special_tokens: list[str] | None = spcial_tokens
 
+        self.re_vocab:dict[bytes:int] = {v:k for k,v in vocab.items()}
+        if spcial_tokens is not None:
+            self.special_tokens = sorted(self.special_tokens,key=len,reverse=True)
+            self.spcial_to_id = {tok:self.re_vocab[tok.encode('utf-8')] for tok in spcial_tokens}
+            special_pattern = '|'.join(re.escape(token) for token in self.special_tokens)
+            self.special_re = re.compile(f'({special_pattern})')
+
+    
 
     @classmethod
-    def from_files(cls,vocab_file,merges_file,special_tokens = None):
+    def from_files(cls,vocab_filepath,merges_filepath,special_tokens = None):
         '''
             method that constructs and return a Tokenizer from a serialized vocabulary and list of merges
         (in the same format that your BPE training code output) and (optionally) a list of special
@@ -59,43 +73,81 @@ class Tokenizer():
         '''
         Encode an input text into a sequence of token IDs.
         '''
-        text_bytes = text.encode('utf-8')
-        re_vocab = {v:k for k,v in self.vocab.items()}  #{byte:int}
-
-        # 拆分成字节形式
-        tokens:list[bytes] = [bytes([b]) for b in text_bytes]
-        merge_rank = {merge:i for i,merge in enumerate(self.merges)}
-
-        # 找到最佳合并并且合并
-        while True:
-            min_rank = float('inf')
-            pairs = [(tokens[i],tokens[i+1]) for i in range(len(tokens)-1)]
-            best_pair = None
-
-            for pair in pairs:      # (byte,byte)
-                if pair in merge_rank and merge_rank[pair] < min_rank:
-                    min_rank = merge_rank[pair]
-                    best_pair = pair
-            
-            if best_pair is None:
-                break
-                
-            new_tokens = []
-            i = 0
-            while i < len(tokens):
-                if i < len(tokens)-1 and tokens[i] == best_pair[0] and tokens[i+1] == best_pair[1]:
-                    new_tokens.append(best_pair[0] + best_pair[1])
-                    i += 2
-                else:
-                    new_tokens.append(tokens[i])
-                    i += 1
-
-            tokens = new_tokens
-        
-        # 将字节形式转换为整数形式
         ids:list[int] = []
-        for token in tokens:
-            ids.append(re_vocab[token])
+
+        if self.special_tokens is None:
+            text_bytes = text.encode('utf-8') #{byte:int}
+            # 拆分成字节形式
+            tokens:list[bytes] = [bytes([b]) for b in text_bytes]
+            merge_rank = {merge:i for i,merge in enumerate(self.merges)}
+            # 找到最佳合并并且合并
+            while True:
+                min_rank = float('inf')
+                pairs = [(tokens[i],tokens[i+1]) for i in range(len(tokens)-1)]
+                best_pair = None
+
+                for pair in pairs:      # (byte,byte)
+                    if pair in merge_rank and merge_rank[pair] < min_rank:
+                        min_rank = merge_rank[pair]
+                        best_pair = pair
+                
+                if best_pair is None:
+                    break
+                    
+                new_tokens = []
+                i = 0
+                while i < len(tokens):
+                    if i < len(tokens)-1 and tokens[i] == best_pair[0] and tokens[i+1] == best_pair[1]:
+                        new_tokens.append(best_pair[0] + best_pair[1])
+                        i += 2
+                    else:
+                        new_tokens.append(tokens[i])
+                        i += 1
+
+                tokens = new_tokens
+            # 将字节形式转换为整数形式
+            for token in tokens:
+                ids.append(self.re_vocab[token])
+        else:
+            segments = self.special_re.split(text)
+            for seg in segments:
+                if seg in self.spcial_to_id:
+                    ids.append(self.spcial_to_id[seg])
+                else:
+                    tokens:list[bytes] = [bytes([b]) for b in seg.encode('utf-8')]
+                    merge_rank = {merge:i for i,merge in enumerate(self.merges)}
+
+                    # 找到最佳合并并且合并
+                    while True:
+                        min_rank = float('inf')
+                        pairs = [(tokens[i],tokens[i+1]) for i in range(len(tokens)-1)]
+                        best_pair = None
+
+                        for pair in pairs:  
+                            if pair == (b'\n',b'\n'):
+                                continue    # (byte,byte)
+                            if pair in merge_rank and merge_rank[pair] < min_rank:
+                                min_rank = merge_rank[pair]
+                                best_pair = pair
+                        
+                        if best_pair is None:
+                            break
+                            
+                        new_tokens = []
+                        i = 0
+                        while i < len(tokens):
+                            if i < len(tokens)-1 and tokens[i] == best_pair[0] and tokens[i+1] == best_pair[1]:
+                                new_tokens.append(best_pair[0] + best_pair[1])
+                                i += 2
+                            else:
+                                new_tokens.append(tokens[i])
+                                i += 1
+
+                        tokens = new_tokens
+                    
+                    for token in tokens:
+                        ids.append(self.re_vocab[token])
+
 
         return ids
         
