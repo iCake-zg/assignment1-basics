@@ -40,5 +40,5 @@ class LinearModel(torch.nn.Module):
         x: torch.Tensor of shape (batch_size, in_features)
         Returns: torch.Tensor of shape (batch_size, out_features)
         '''
-        y = einsum(x, self.W, "batch_size in_features, out_features in_features -> batch_size out_features")
+        y = einsum(x, self.W, "... in_features, out_features in_features -> ... out_features")
         return y

@@ -54,6 +54,11 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
+    from cs336_basics.p_3_4_embedding_model import EmbeddingModel
+    embedding = EmbeddingModel(vocab_size, d_model, device=weights.device, dtype=weights.dtype)
+    embedding.load_state_dict({'weight': weights})
+    output = embedding.forward(token_ids)
+    return output
 
     raise NotImplementedError
 
