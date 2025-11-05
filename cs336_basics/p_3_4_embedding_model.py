@@ -11,7 +11,7 @@ from math import sqrt
 class EmbeddingModel(torch.nn.Module):
 
     def __init__(self, num_embeddings,embedding_dim,device = None,dtype = None):
-        super().__init__(num_embeddings,embedding_dim,device = device,dtype = dtype)
+        super().__init__()
 
         '''
         num_embeddings: int Size of the vocabulary
@@ -23,7 +23,7 @@ class EmbeddingModel(torch.nn.Module):
 
         std = sqrt(2.0 / (num_embeddings + embedding_dim))
         mean = 0.0
-        torch.nn.init.trunc_normal_(self.embedding,
+        torch.nn.init.trunc_normal_(self.weight,
                                      mean = mean,
                                      std = std,
                                      a = -3*std,

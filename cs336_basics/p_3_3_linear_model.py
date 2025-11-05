@@ -42,3 +42,6 @@ class LinearModel(torch.nn.Module):
         '''
         y = einsum(x, self.W, "... in_features, out_features in_features -> ... out_features")
         return y
+    
+
+    
