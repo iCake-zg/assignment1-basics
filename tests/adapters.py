@@ -28,8 +28,12 @@ def run_linear(
     Returns:
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
-
-    raise NotImplementedError
+    from cs336_basics.p_3_3_linear_model import LinearModel
+    linear = LinearModel(d_in, d_out, device=weights.device, dtype=weights.dtype)
+    linear.load_state_dict({'W': weights})
+    output = linear.forward(in_features)
+    return output
+    # raise NotImplementedError
 
 
 def run_embedding(
