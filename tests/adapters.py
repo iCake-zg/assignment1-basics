@@ -92,6 +92,11 @@ def run_swiglu(
     # swiglu.w1.weight.data = w1_weight
     # swiglu.w2.weight.data = w2_weight
     # swiglu.w3.weight.data = w3_weight
+    from cs336_basics.p_3_5_2_swiglu import SwiGLu
+    swiglu = SwiGLu(d_model, d_ff)
+    swiglu.load_state_dict({'w1_weight': w1_weight, 'w2_weight': w2_weight, 'w3_weight': w3_weight})
+    output = swiglu.forward(in_features)
+    return output
     raise NotImplementedError
 
 
@@ -209,7 +214,12 @@ def run_rope(
     Returns:
         Float[Tensor, " ... sequence_length d_k"]: Tensor with RoPEd input.
     """
-    raise NotImplementedError
+    from cs336_basics.p_3_5_3_rope import RotaryPositionEmbedding
+    rope = RotaryPositionEmbedding(theta, d_k, max_seq_len)
+    output = rope.forward(in_query_or_key, token_positions)
+
+    return output
+    # raise NotImplementedError
 
 
 def run_transformer_block(
