@@ -118,7 +118,26 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    from einops import einsum
+    # QK
+    scores = einsum(Q, K, " ... q d_k, ... k d_k -> ... q k")
+    # Scale scores
+    scores = scores / (Q.shape[-1] ** 0.5)
+    # Apply mask
+    if mask is not None:
+        scores = scores.masked_fill(~mask,float('-inf'))
+        # scores = scores.masked_fill(~mask, float('-inf'))
+    # softmax
+    from cs336_basics.p_3_5_4_softmax import Softmax
+    softmax = Softmax()
+    scores = softmax.forward(scores)
+    # V
+    output = einsum(scores, V, " ... q k, ... k d_v -> ... q d_v")
+
+    return output
+
+
+    # raise NotImplementedError
 
 
 def run_multihead_self_attention(
@@ -152,6 +171,14 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
+    d_k = d_model // num_heads
+    d_v = d_model // num_heads
+    
+
+
+
+
+
     raise NotImplementedError
 
 
@@ -455,6 +482,10 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
         Float[Tensor, "..."]: Tensor of with the same shape as `in_features` with the output of
         softmax normalizing the specified `dim`.
     """
+    from cs336_basics.p_3_5_4_softmax import Softmax
+    softmax = Softmax()
+    softmax_res = softmax.forward(in_features)
+    return softmax_res
     raise NotImplementedError
 
 

@@ -18,24 +18,24 @@ class RotaryPositionEmbedding(torch.nn.Module):
         self.d_k = d_k
         self.max_seq_len = max_seq_len
 
-        print("d_k:", d_k)
-        print("max_seq_len:", max_seq_len)
-        print("theta:", theta)
+        # print("d_k:", d_k)
+        # print("max_seq_len:", max_seq_len)
+        # print("theta:", theta)
         # 预计算cos 和 sin值
         # 为每个位置i 和每个维度对k 计算角度 theta—{i,k}
         k_indices = torch.arange(0,d_k //2, device = device)  
         freqs = 1/(theta ** (((2*k_indices)-2) / d_k))
         freqs = 1.0 / (theta ** (2 * k_indices / d_k))
-        
-        print("k_indices:", k_indices)
-        print("freqs:", freqs)
+
+        # print("k_indices:", k_indices)
+        # print("freqs:", freqs)
         # 计算位置索引
         positions = torch.arange(max_seq_len, device = device)
-        print(positions)
+        # print(positions)
         # 计算角度
         angles = torch.outer(positions, freqs)  # shape = (max_seq_len,dk//2)
         # angles = einsum(positions, freqs, 'i d_k, i d_k -> i d_k')
-        print(angles)
+        # print(angles)
 
         # 计算cos 和 sin值
         cos_angles = torch.cos(angles)
@@ -58,10 +58,10 @@ class RotaryPositionEmbedding(torch.nn.Module):
 
         seq_len = x.shape[-2]
         
-        print("token_positions:", token_positions)
+        # print("token_positions:", token_positions)
         positions = token_positions.long()
         cos = self.cos_cashed[positions]
-        print(cos.shape)
+        # print(cos.shape)
         sin = self.sin_cashed[positions]
         
         # cos = self.cos_cashed
