@@ -171,13 +171,74 @@ def run_multihead_self_attention(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    d_k = d_model // num_heads
-    d_v = d_model // num_heads
+    import torch
+    from einops import einsum
+
+
     
+    # Get dimensions
+    *batch_dims, seq_len, d_in = in_features.shape
+    d_k = q_proj_weight.shape[0]
+    d_v = v_proj_weight.shape[0]
+    head_dim_k = d_k // num_heads
+    head_dim_v = d_v // num_heads
 
+    batch_size = 1
+    for dim in batch_dims:
+        batch_size *= dim
+    
+    x = in_features.reshape(batch_size,seq_len,d_in)
 
-
-
+    # x: [batch_size, seq_len, d_in]
+    Q = einsum(x, q_proj_weight ,"... s d_in,  d_k d_in -> ... s d_k")
+    K = einsum(x, k_proj_weight ,"... s d_in,  d_k d_in -> ... s d_k")
+    V = einsum(x, v_proj_weight ,"... s d_in,  d_v d_in -> ... s d_v")
+    
+    # Reshape for multi-head attention
+    # [batch_size, seq_len, d_k] -> [batch_size, seq_len, num_heads, head_dim_k]
+    # -> [batch_size, num_heads, seq_len, head_dim_k]
+    Q = Q.view(batch_size, seq_len, num_heads, head_dim_k).transpose(1, 2)
+    K = K.view(batch_size, seq_len, num_heads, head_dim_k).transpose(1, 2)
+    V = V.view(batch_size, seq_len, num_heads, head_dim_v).transpose(1, 2)
+    
+    # Scaled dot-product attention
+    # Q: [batch_size, num_heads, seq_len, head_dim_k]
+    # K: [batch_size, num_heads, seq_len, head_dim_k]
+    # Attention scores: [batch_size, num_heads, seq_len, seq_len]
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / (head_dim_k ** 0.5)
+    
+    # Apply causal mask (for autoregressive attention)
+    causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=scores.device), diagonal=1).bool()
+    scores = scores.masked_fill(causal_mask, float('-inf'))
+    
+    # Apply softmax
+    from cs336_basics.p_3_5_4_softmax import Softmax
+    softmax = Softmax()
+    attn_weights = softmax.forward(scores)  # [batch_size, num_heads, seq_len, seq_len]
+    
+    # Apply attention to values
+    # attn_weights: [batch_size, num_heads, seq_len, seq_len]
+    # V: [batch_size, num_heads, seq_len, head_dim_v]
+    # output: [batch_size, num_heads, seq_len, head_dim_v]
+    attn_output = torch.matmul(attn_weights, V)
+    
+    # Concatenate heads
+    # [batch_size, num_heads, seq_len, head_dim_v] -> [batch_size, seq_len, num_heads, head_dim_v]
+    # -> [batch_size, seq_len, d_v]
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.view(batch_size, seq_len, d_v)
+    
+    # Apply output projection
+    # attn_output: [batch_size, seq_len, d_v]
+    # o_proj_weight: [d_model, d_v]
+    # output: [batch_size, seq_len, d_model]
+    output = torch.matmul(attn_output, o_proj_weight.T)
+    
+    # Reshape back to original batch dimensions
+    output = output.view(*batch_dims, seq_len, d_model)
+    
+    return output
+    
 
     raise NotImplementedError
 
@@ -219,7 +280,80 @@ def run_multihead_self_attention_with_rope(
         Float[Tensor, " ... sequence_length d_out"]: Tensor with the output of running your optimized, batched multi-headed attention
         implementation with the given QKV projection weights and input features.
     """
-    raise NotImplementedError
+    from einops import einsum
+    *batch_dims, seq_len, d_in = in_features.shape
+    d_k = q_proj_weight.shape[0]
+    d_v = v_proj_weight.shape[0]
+    head_dim_k = d_k // num_heads
+    head_dim_v = d_v // num_heads
+
+    batch_size = 1
+    for dim in batch_dims:
+        batch_size *= dim
+    
+    x = in_features.reshape(batch_size,seq_len,d_in)
+
+    # x: [batch_size, seq_len, d_in]
+    Q = einsum(x, q_proj_weight ,"... s d_in,  d_k d_in -> ... s d_k")
+    K = einsum(x, k_proj_weight ,"... s d_in,  d_k d_in -> ... s d_k")
+    V = einsum(x, v_proj_weight ,"... s d_in,  d_v d_in -> ... s d_v")
+    
+    # Reshape for multi-head attention
+    # [batch_size, seq_len, d_k] -> [batch_size, seq_len, num_heads, head_dim_k]
+    # -> [batch_size, num_heads, seq_len, head_dim_k]
+    Q = Q.view(batch_size, seq_len, num_heads, head_dim_k).transpose(1, 2)
+    K = K.view(batch_size, seq_len, num_heads, head_dim_k).transpose(1, 2)
+    V = V.view(batch_size, seq_len, num_heads, head_dim_v).transpose(1, 2)
+
+    from cs336_basics.p_3_5_3_rope import RotaryPositionEmbedding
+    rope = RotaryPositionEmbedding(theta, head_dim_k, max_seq_len)
+    # Apply RoPE to Q and K
+    Q = rope.forward(Q, token_positions)
+    K = rope.forward(K, token_positions)
+    
+    # Scaled dot-product attention
+    # Q: [batch_size, num_heads, seq_len, head_dim_k]
+    # K: [batch_size, num_heads, seq_len, head_dim_k]
+    # Attention scores: [batch_size, num_heads, seq_len, seq_len]
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / (head_dim_k ** 0.5)
+    
+    # Apply causal mask (for autoregressive attention)
+    causal_mask = torch.triu(torch.ones(seq_len, seq_len, device=scores.device), diagonal=1).bool()
+    scores = scores.masked_fill(causal_mask, float('-inf'))
+    
+    # Apply softmax
+    from cs336_basics.p_3_5_4_softmax import Softmax
+    softmax = Softmax()
+    attn_weights = softmax.forward(scores)  # [batch_size, num_heads, seq_len, seq_len]
+    
+    # Apply attention to values
+    # attn_weights: [batch_size, num_heads, seq_len, seq_len]
+    # V: [batch_size, num_heads, seq_len, head_dim_v]
+    # output: [batch_size, num_heads, seq_len, head_dim_v]
+    attn_output = torch.matmul(attn_weights, V)
+    
+    # Concatenate heads
+    # [batch_size, num_heads, seq_len, head_dim_v] -> [batch_size, seq_len, num_heads, head_dim_v]
+    # -> [batch_size, seq_len, d_v]
+    attn_output = attn_output.transpose(1, 2).contiguous()
+    attn_output = attn_output.view(batch_size, seq_len, d_v)
+    
+    # Apply output projection
+    # attn_output: [batch_size, seq_len, d_v]
+    # o_proj_weight: [d_model, d_v]
+    # output: [batch_size, seq_len, d_model]
+    output = torch.matmul(attn_output, o_proj_weight.T)
+    
+    # Reshape back to original batch dimensions
+    output = output.view(*batch_dims, seq_len, d_model)
+    
+    return output
+
+
+
+
+
+    # raise NotImplementedError
 
 
 def run_rope(
