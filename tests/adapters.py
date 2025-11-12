@@ -453,6 +453,87 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
+    # 拿到参数
+    batch,sequence_length,d_model = in_features.shape
+    d_k = d_model // num_heads
+    d_v = d_model // num_heads
+
+
+    # 第一个残差链接RMSNorm
+    from cs336_basics.p_3_5_1_rmsnorm import RMSNorm
+    rmsnorm = RMSNorm(d_model)
+    rmsnorm.load_state_dict({"weight": weights["ln1.weight"]})
+    normalized = rmsnorm.forward(in_features)
+
+    # 投影QKV
+    from einops import einsum
+    # q = einsum(normalized, weights["attn.q_proj.weight"], 
+    #            "batch sequence_length d_model, d_model d_k -> batch sequence_length d_k")
+    # k = einsum(normalized, weights["attn.k_proj.weight"], 
+    #            "batch sequence_length d_model, d_model d_k -> batch sequence_length d_k")
+    # v = einsum(normalized, weights["attn.v_proj.weight"], 
+    #            "batch sequence_length d_model, d_model d_v -> batch sequence_length d_v")
+
+    q = normalized @ weights["attn.q_proj.weight"].T
+    k = normalized @ weights["attn.k_proj.weight"].T
+    v = normalized @ weights["attn.v_proj.weight"].T
+
+    # 重塑为多头
+    q = q.view(batch, sequence_length, num_heads, d_k).transpose(1, 2)
+    k = k.view(batch, sequence_length, num_heads, d_k).transpose(1, 2)
+    v = v.view(batch, sequence_length, num_heads, d_v).transpose(1, 2)
+
+    # Rope
+    from cs336_basics.p_3_5_3_rope import RotaryPositionEmbedding
+    rope = RotaryPositionEmbedding(theta,d_k,max_seq_len=max_seq_len)
+    token_position = torch.arange(sequence_length).unsqueeze(0).unsqueeze(0)
+    Q = rope.forward(q,token_position)
+    K = rope.forward(k,token_position)
+
+    # 计算注意力 + 因果掩码
+    scores = torch.matmul(Q, K.transpose(-2, -1)) / (d_k ** 0.5)
+    
+    # 因果掩码
+    causal_mask = torch.triu(torch.ones(sequence_length, sequence_length, device=scores.device), diagonal=1).bool()
+    scores = scores.masked_fill(causal_mask, float('-inf'))
+
+    # 应用softmax
+    from cs336_basics.p_3_5_4_softmax import Softmax
+    softmax = Softmax()
+    scores = softmax.forward(scores)
+
+    # 计算输出
+    output = torch.matmul(scores, v)
+
+    # 合并多头
+    output = output.transpose(1, 2).contiguous().view(batch, sequence_length, d_model)
+
+    # 输出投影
+    from einops import einsum
+    # attn_output = einsum(output, weights["attn.output_proj.weight"], "batch sequence_length d_model, d_model d_model -> batch sequence_length d_model")
+    attn_output = output @ weights['attn.output_proj.weight'].T
+    # attn_output = attn_output @ weights['attn.output_proj.weight'].T
+
+    # 残差链接
+    x = in_features + attn_output
+
+    # 第二个残差连接
+    rmsnorm = RMSNorm(d_model)
+    rmsnorm.load_state_dict({"weight": weights["ln2.weight"]})
+    normalized_ffn = rmsnorm.forward(x)
+
+    # SwiGLU FFN
+    from cs336_basics.p_3_5_2_swiglu import SwiGLu
+    swiglu = SwiGLu(d_model, d_ff)
+    swiglu.load_state_dict({'w1_weight': weights["ffn.w1.weight"], 'w2_weight': weights["ffn.w2.weight"], 'w3_weight': weights["ffn.w3.weight"]})
+    ffn_output = swiglu.forward(normalized_ffn)
+
+    # 残差链接
+    output = x + ffn_output
+
+    return output
+    # 
+
     raise NotImplementedError
 
 
