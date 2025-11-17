@@ -616,7 +616,48 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    import torch
+    from cs336_basics.p_3_5_1_rmsnorm import RMSNorm
+
+    batch_size, sequence_length = in_indices.shape
+
+    token_embeddings = weights["token_embeddings.weight"]
+    x = token_embeddings[in_indices]
+
+    for layer_idx in range(num_layers):
+        layer_weights = {
+            "attn.q_proj.weight": weights[f"layers.{layer_idx}.attn.q_proj.weight"],
+            "attn.k_proj.weight": weights[f"layers.{layer_idx}.attn.k_proj.weight"],
+            "attn.v_proj.weight": weights[f"layers.{layer_idx}.attn.v_proj.weight"],
+            "attn.output_proj.weight": weights[f"layers.{layer_idx}.attn.output_proj.weight"],
+            "ln1.weight": weights[f"layers.{layer_idx}.ln1.weight"],
+            "ffn.w1.weight": weights[f"layers.{layer_idx}.ffn.w1.weight"],
+            "ffn.w2.weight": weights[f"layers.{layer_idx}.ffn.w2.weight"],
+            "ffn.w3.weight": weights[f"layers.{layer_idx}.ffn.w3.weight"],
+            "ln2.weight": weights[f"layers.{layer_idx}.ln2.weight"],
+        }
+
+        x = run_transformer_block(
+            weights=layer_weights,
+            num_heads=num_heads,
+            d_model=d_model,
+            d_ff=d_ff,
+            max_seq_len=context_length,
+            theta=rope_theta,
+            in_features=x
+        )
+
+    final_rmsnorm = RMSNorm(d_model=d_model)
+    final_rmsnorm.load_state_dict({"weight": weights["ln_final.weight"]})
+    x = final_rmsnorm.forward(x)
+
+    lm_head = weights["lm_head.weight"]
+    logits = x @ lm_head.T
+
+    return logits
+    # raise NotImplementedError
+
+
 
 
 def run_rmsnorm(
