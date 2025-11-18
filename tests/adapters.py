@@ -746,7 +746,8 @@ def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, "
 
 
 def run_cross_entropy(
-    inputs: Float[Tensor, " batch_size vocab_size"], targets: Int[Tensor, " batch_size"]
+    inputs: Float[Tensor, " batch_size vocab_size"], 
+    targets: Int[Tensor, " batch_size"]
 ) -> Float[Tensor, ""]:
     """Given a tensor of inputs and targets, compute the average cross-entropy
     loss across examples.
@@ -760,7 +761,48 @@ def run_cross_entropy(
     Returns:
         Float[Tensor, ""]: The average cross-entropy loss across examples.
     """
-    raise NotImplementedError
+    import torch
+    
+    # 处理可能的额外批次维度（flatten除了最后一个维度）
+    # 例如：如果输入是 (batch1, batch2, ..., vocab_size)，我们需要展平为 (batch_total, vocab_size)
+    original_shape = inputs.shape
+    if inputs.ndim > 2:
+        # 展平所有批次维度
+        inputs = inputs.view(-1, inputs.shape[-1])  # (batch_total, vocab_size)
+        targets = targets.view(-1)  # (batch_total,)
+    
+    batch_size, vocab_size = inputs.shape
+    
+    # 步骤1: 为数值稳定性减去最大值
+    # 这不会改变 softmax 的结果，但防止 exp 溢出
+    max_logits = inputs.max(dim=-1, keepdim=True).values  # (batch_size, 1)
+    inputs_shifted = inputs - max_logits  # (batch_size, vocab_size)
+    
+    # 步骤2: 计算 log(sum(exp(logits)))
+    # log_sum_exp = log(sum(exp(inputs_shifted)))
+    exp_inputs = torch.exp(inputs_shifted)  # (batch_size, vocab_size)
+    sum_exp = exp_inputs.sum(dim=-1, keepdim=True)  # (batch_size, 1)
+    log_sum_exp = torch.log(sum_exp)  # (batch_size, 1)
+    
+    # 步骤3: 计算 log softmax
+    # log_softmax(x_i) = x_i - max - log(sum(exp(x - max)))
+    log_softmax = inputs_shifted - log_sum_exp  # (batch_size, vocab_size)
+    
+    # 步骤4: 提取目标类别的 log 概率
+    # 对于每个样本 i，我们需要 log_softmax[i, targets[i]]
+    batch_indices = torch.arange(batch_size, device=inputs.device)
+    target_log_probs = log_softmax[batch_indices, targets]  # (batch_size,)
+    
+    # 步骤5: 计算负对数似然（交叉熵）
+    # cross_entropy = -log p(x_{i+1} | x_{1:i})
+    cross_entropy_loss = -target_log_probs  # (batch_size,)
+    
+    # 步骤6: 返回平均损失
+    average_loss = cross_entropy_loss.mean()  # scalar
+    
+    return average_loss
+
+    # raise NotImplementedError
 
 
 def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
@@ -776,10 +818,12 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
 
 def get_adamw_cls() -> Any:
+
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    
+    # raise NotImplementedError
 
 
 def run_get_lr_cosine_schedule(
